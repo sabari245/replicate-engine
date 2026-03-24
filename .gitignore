@@ -1,0 +1,11 @@
+# Binaries
+replicate-engine
+*.exe
+*.out
+
+# Go build cache
+/vendor/
+
+# Environment files
+.env
+.env.*
