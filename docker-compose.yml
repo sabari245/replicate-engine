@@ -1,0 +1,21 @@
+services:
+  agent:
+    build: .
+    environment:
+      - FIREWORKS_API_KEY=${FIREWORKS_API_KEY}
+      - WORKSPACE_DIR=/workspace/output
+    volumes:
+      - ./output:/workspace/output
+      - agent_home:/root
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+
+
+volumes:
+  agent_home:
