@@ -7,16 +7,17 @@ An AI-powered web development agent system that autonomously creates, builds, an
 Replicate Engine uses the `pi-coding-agent` SDK with Fireworks AI (Kimi K2.5) to create websites from natural language prompts. It manages the entire workflow:
 
 1. Creates a fresh Vite React + TypeScript project
-2. Runs an AI agent to implement the requested features
-3. Verifies the dev server works with `curl`
-4. Builds the production bundle
-5. Signals completion when everything is verified
+2. Starts the dev server so the site is live while the agent works
+3. Runs an AI agent to implement the requested features
+4. Verifies the dev server works with `curl`
+5. Builds the production bundle
+6. Streams a structured transcript of assistant output, tool calls, and file edits to the terminal
 
 ## Architecture
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   run.ts    │────▶│  Vite Project │────▶│  Agent.ts   │
+│  index.ts   │────▶│  Vite Project │────▶│  Agent.ts   │
 │ (host)      │     │  (output/)    │     │ (in process)│
 └─────────────┘     └──────────────┘     └──────┬──────┘
                                                   │
@@ -27,7 +28,7 @@ Replicate Engine uses the `pi-coding-agent` SDK with Fireworks AI (Kimi K2.5) to
                                            └──────────────┘
 ```
 
-- **run.ts** - Host orchestrator that creates project and starts agent
+- **index.ts** - Host orchestrator that creates project, rebuilds the image, and attaches to the container
 - **agent.ts** - Agent session that runs inside the process
 - **prompts/system.md** - System instructions for the web dev agent
 - **output/** - The generated Vite project (gitignored)
@@ -58,8 +59,8 @@ export FIREWORKS_API_KEY=fw_xxxxxxxxxxxxxxxx
 ### Quick Start
 
 ```bash
-# Run the agent (creates project, starts dev server, modifies files)
-bun run run.ts
+# Run the full session (resets output/, starts the container, streams the transcript)
+bun run index.ts
 ```
 
 ### Using Make
@@ -72,7 +73,7 @@ make run
 make logs
 
 # View website
-make open
+make view
 
 # Stop everything
 make stop
@@ -84,11 +85,11 @@ make clean run
 ### Manual Steps
 
 ```bash
-# 1. Create project and run agent
-bun run run.ts
+# 1. Create project and run the attached session
+bun run index.ts
 
-# 2. In another terminal, view logs
-tail -f agent.log
+# 2. In another terminal, follow the same container logs if needed
+make logs
 
 # 3. View the website (once dev server starts)
 curl http://localhost:5173
@@ -97,13 +98,14 @@ open http://localhost:5173  # or open in browser
 
 ## How It Works
 
-1. **Project Creation**: `run.ts` clears `output/` and creates a fresh Vite React + TS project
-2. **Dev Server**: Starts `bun run dev` in the background on port 5173
-3. **Agent Session**: Connects to Fireworks AI (Kimi K2.5) with web development tools
-4. **File Operations**: Agent can read/write/edit files, run commands, fetch URLs
-5. **Verification**: Agent verifies the site works with `curl` before completing
-6. **Build Check**: Agent runs `bun run build` to ensure production build succeeds
-7. **Completion**: Agent calls `completed()` tool when everything is verified
+1. **Project Reset**: `index.ts` clears `output/` and creates a fresh Vite React + TS project
+2. **Container Rebuild**: `index.ts` rebuilds the Docker image and starts the container in attached mode
+3. **Dev Server**: `agent.ts` starts `bun run dev --host 0.0.0.0` so the site is live on port 5173
+4. **Agent Session**: `agent.ts` connects to Fireworks AI (Kimi K2.5) with web development tools
+5. **Structured Transcript**: assistant text, tool calls, file edits, and dev server logs are streamed to the terminal
+6. **Verification**: the agent verifies the site works with `curl` before completing
+7. **Build Check**: the agent runs `bun run build` to ensure the production build succeeds
+8. **Completion**: the container stays alive after `completed()` so the dev server remains available
 
 ## Agent Capabilities
 
@@ -119,8 +121,7 @@ The web development agent has access to:
 ```
 .
 ├── agent.ts           # Agent session (runs inside process)
-├── run.ts             # Host orchestrator
-├── index.ts           # Docker container version (alternative)
+├── index.ts           # Host orchestrator
 ├── prompts/
 │   └── system.md      # Agent system instructions
 ├── output/            # Generated Vite project (gitignored)
@@ -134,7 +135,7 @@ The web development agent has access to:
 
 ### Change the Model
 
-Edit `run.ts` or `agent.ts` to use a different Fireworks model:
+Edit `index.ts` or `agent.ts` to use a different Fireworks model:
 
 ```typescript
 {
@@ -146,7 +147,7 @@ Edit `run.ts` or `agent.ts` to use a different Fireworks model:
 
 ### Change the Prompt
 
-Edit the user prompt in `run.ts`:
+Edit the user prompt in `agent.ts`:
 
 ```typescript
 const userPrompt = "Create a portfolio website with dark theme";
@@ -168,7 +169,7 @@ docker-compose up --build
 ## Troubleshooting
 
 **Agent not making changes?**
-- Check `agent.log` for errors
+- Check the attached terminal output or `make logs` for errors
 - Verify `FIREWORKS_API_KEY` is set
 - Ensure port 5173 is available
 
@@ -178,7 +179,7 @@ docker-compose up --build
 
 **Website not loading?**
 - Verify dev server is running: `curl http://localhost:5173`
-- Check logs: `tail -f agent.log`
+- Check logs: `make logs`
 
 ## License
 

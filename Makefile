@@ -5,8 +5,8 @@ CONTAINER_NAME=pi-agent-session
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make run     - Wipe output/, scaffold project, build image, start container"
-	@echo "  make logs    - Watch agent + dev server logs from the container"
+	@echo "  make run     - Reset output/, scaffold project, rebuild image, and attach to the live agent session"
+	@echo "  make logs    - Follow logs from an already running container"
 	@echo "  make stop    - Stop and remove the running container"
 	@echo "  make clean   - Stop container and wipe output/ directory"
 	@echo "  make shell   - Open a shell inside the running container"
@@ -14,7 +14,7 @@ help:
 	@echo "  make test    - Verify the dev server responds (curl)"
 	@echo "  make view    - Open the website in the browser"
 
-# Run: wipe output, scaffold Vite project, build image, start container
+# Run: reset output, scaffold Vite project, build image, start attached container
 run:
 	bun run index.ts
 
