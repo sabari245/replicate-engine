@@ -8,6 +8,19 @@ const cwd = process.env.WORKSPACE_DIR || "/workspace/output";
 
 await mkdir(cwd, { recursive: true });
 
+// Start the dev server in the background before the agent takes over
+console.log("[1/3] Starting dev server in background...");
+const serverProc = Bun.spawn({
+  cmd: ["bun", "run", "dev", "--host"],
+  cwd,
+  stdout: "pipe",
+  stderr: "pipe",
+});
+
+// Give the dev server time to come up
+await new Promise((resolve) => setTimeout(resolve, 3000));
+console.log("[2/3] Dev server running at http://localhost:5173");
+
 const agentDir = join(homedir(), ".pi", "agent");
 await mkdir(agentDir, { recursive: true });
 
@@ -75,7 +88,8 @@ if (!model) {
   process.exit(1);
 }
 
-console.log(`Using model: ${model.name}`);
+console.log(`[3/3] Using model: ${model.name}`);
+console.log("");
 
 const { session } = await createAgentSession({
   cwd,
@@ -93,13 +107,29 @@ session.subscribe((event) => {
   }
 });
 
-const userPrompt = "Create a simple hello world website.";
+const userPrompt = `The Vite React + TypeScript project is already set up and the dev server is ALREADY RUNNING at http://localhost:5173.
+
+DO NOT run 'bun run dev', 'npm run dev', or start any server process — it is already running.
+
+Your task:
+1. Modify the existing App.tsx to create a simple hello world website
+2. Verify the site is working by running: curl -s http://localhost:5173/ | head -20
+3. Run 'bun run build' inside ${cwd} to verify the production build succeeds
+4. Call completed()`;
+
+console.log(">>> Starting agent...\n");
 
 let response = await session.prompt(userPrompt);
 
 while (!isCompleted) {
   console.log("\n\n[AGENT] Project not yet marked complete. Asking agent...\n");
-  response = await session.prompt("Is the project considered complete or do you have something else to do? If the project is completed, call the completed() function to ensure that.");
+  response = await session.prompt(
+    "Is the project considered complete or do you have something else to do? If the project is completed, call the completed() function to ensure that."
+  );
 }
 
 console.log("\n\n[✓] Project completed successfully!");
+console.log("Dev server still running at http://localhost:5173");
+
+// Keep the container alive so the UI remains accessible
+await serverProc.exited;

@@ -18,7 +18,7 @@ COPY package.json bun.lock ./
 RUN bun install
 
 COPY prompts/ /workspace/prompts/
-COPY index.ts agent.ts ./
+COPY agent.ts ./
 
 ENV HOME=/root
 ENV WORKSPACE_DIR=/workspace/output

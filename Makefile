@@ -1,54 +1,53 @@
-.PHONY: help run logs stop clean shell build test
+.PHONY: help run logs stop clean shell build test view
+
+CONTAINER_NAME=pi-agent-session
 
 # Default target
 help:
 	@echo "Available commands:"
-	@echo "  make run     - Run the AI agent to create/modify website"
-	@echo "  make logs    - Watch agent progress in real-time"
-	@echo "  make stop    - Stop the running agent and dev server"
-	@echo "  make clean   - Clean output/ directory and reset"
-	@echo "  make shell   - Open shell in output/ directory"
-	@echo "  make build   - Run production build manually"
-	@echo "  make test    - Test if website responds with curl"
-	@echo "  make view    - Open website in browser"
+	@echo "  make run     - Wipe output/, scaffold project, build image, start container"
+	@echo "  make logs    - Watch agent + dev server logs from the container"
+	@echo "  make stop    - Stop and remove the running container"
+	@echo "  make clean   - Stop container and wipe output/ directory"
+	@echo "  make shell   - Open a shell inside the running container"
+	@echo "  make build   - Run production build manually inside the container"
+	@echo "  make test    - Verify the dev server responds (curl)"
+	@echo "  make view    - Open the website in the browser"
 
-# Run the AI agent (clears output/, creates project, starts server, runs agent)
+# Run: wipe output, scaffold Vite project, build image, start container
 run:
-	@export FIREWORKS_API_KEY=$${FIREWORKS_API_KEY} && bun run run.ts
+	bun run index.ts
 
-# Run in background and watch logs
-run-bg:
-	@export FIREWORKS_API_KEY=$${FIREWORKS_API_KEY} && nohup bun run run.ts > agent.log 2>&1 &
-	@echo "Agent started in background. Run 'make logs' to watch progress."
-
-# Watch agent logs
+# Watch container logs in real-time (waits for container to start)
 logs:
-	@tail -f agent.log
+	@echo "Waiting for container '$(CONTAINER_NAME)' to start..."
+	@until docker ps -q -f name=$(CONTAINER_NAME) | grep -q .; do sleep 1; done
+	@docker logs -f $(CONTAINER_NAME)
 
-# Stop all processes
+# Stop and remove the container
 stop:
-	@pkill -f "run.ts" 2>/dev/null || true
-	@pkill -f "bun.*dev" 2>/dev/null || true
-	@echo "Stopped agent and dev server"
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
+	@echo "Container stopped and removed"
 
-# Clean output directory
-clean:
+# Stop container and wipe output/
+clean: stop
 	@rm -rf output/*
 	@echo "Cleaned output/ directory"
 
-# Open shell in output directory
+# Open a shell inside the running container
 shell:
-	@cd output && $(SHELL)
+	@docker exec -it $(CONTAINER_NAME) /bin/bash
 
-# Manual build
+# Run production build inside the container
 build:
-	@cd output && bun run build
+	@docker exec $(CONTAINER_NAME) sh -c "cd $$WORKSPACE_DIR && bun run build"
 
-# Test website
+# Verify the dev server is responding
 test:
 	@curl -s http://localhost:5173 | head -20
 
-# Open website in browser
+# Open the website in the browser
 view:
 	@echo "Opening http://localhost:5173"
 	@xdg-open http://localhost:5173 2>/dev/null || open http://localhost:5173 2>/dev/null || echo "Open manually: http://localhost:5173"

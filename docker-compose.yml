@@ -9,6 +9,9 @@ services:
       - agent_home:/root
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /workspace
+    ports:
+      - "5173:5173"
+      - "3000:3000"
     stdin_open: true
     tty: true
     privileged: true

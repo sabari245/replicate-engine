@@ -16,7 +16,8 @@ try {
   }
 } catch {}
 
-await Bun.$`cd ${cwd} && bun create vite@latest . --template react-ts`.nothrow();
+await Bun.$`cd ${cwd} && bunx create-vite@latest . --template react-ts`.nothrow();
+await Bun.$`cd ${cwd} && bun install`.nothrow();
 
 await Bun.$`docker build -t pi-agent .`.nothrow();
 
