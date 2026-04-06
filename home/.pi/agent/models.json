@@ -10,7 +10,8 @@
           "name": "Kimi K2.5 (Fireworks)",
           "reasoning": true,
           "input": [
-            "text"
+            "text",
+            "image"
           ],
           "contextWindow": 256000,
           "maxTokens": 32768

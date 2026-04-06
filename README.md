@@ -1,37 +1,45 @@
 # Replicate Engine
 
-An AI-powered web development agent system that autonomously creates, builds, and verifies websites using LLMs.
+An AI-powered website replication system that uses a builder agent and a verifier agent to iteratively match reference screenshots.
 
 ## Overview
 
-Replicate Engine uses the `pi-coding-agent` SDK with Fireworks AI (Kimi K2.5) to create websites from natural language prompts. It manages the entire workflow:
+Replicate Engine uses the `pi-coding-agent` SDK with Fireworks AI (Kimi K2.5) to replicate websites from reference screenshots. It manages the entire workflow:
 
 1. Creates a fresh Vite React + TypeScript project
 2. Starts the dev server so the site is live while the agent works
-3. Runs an AI agent to implement the requested features
-4. Verifies the dev server works with `curl`
-5. Builds the production bundle
-6. Streams a structured transcript of assistant output, tool calls, and file edits to the terminal
+3. Runs a persistent builder agent against the images in `images/`
+4. Captures screenshots of the current implementation into `output_images/`
+5. Runs a fresh verifier agent that compares `images/` and `output_images/`
+6. Loops until the verifier passes or fails the builder 5 times
+7. Streams a structured transcript of builder/verifier output, tool calls, and file edits to the terminal
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  index.ts   │────▶│  Vite Project │────▶│  Agent.ts   │
-│ (host)      │     │  (output/)    │     │ (in process)│
-└─────────────┘     └──────────────┘     └──────┬──────┘
-                                                  │
-                                                  ▼
-                                           ┌──────────────┐
-                                           │ Fireworks AI │
-                                           │ (Kimi K2.5)  │
-                                           └──────────────┘
+┌─────────────┐     ┌──────────────┐     ┌────────────────────────┐
+│  index.ts   │────▶│  Vite Project │────▶│  agent.ts orchestrator │
+│ (host)      │     │  (output/)    │     │                        │
+└─────────────┘     └──────────────┘     ├────────────────────────┤
+                                          │ builder session        │
+                                          │ screenshot capture     │
+                                          │ verifier session       │
+                                          └──────────┬─────────────┘
+                                                     │
+                                                     ▼
+                                              ┌──────────────┐
+                                              │ Fireworks AI │
+                                              │ (Kimi K2.5)  │
+                                              └──────────────┘
 ```
 
 - **index.ts** - Host orchestrator that creates project, rebuilds the image, and attaches to the container
-- **agent.ts** - Agent session that runs inside the process
-- **prompts/system.md** - System instructions for the web dev agent
+- **agent.ts** - In-container orchestrator for the builder/verifier loop
+- **prompts/builder-system.md** - System instructions for the builder agent
+- **prompts/verifier-system.md** - System instructions for the verifier agent
 - **output/** - The generated Vite project (gitignored)
+- **images/** - Reference screenshots
+- **output_images/** - Captured implementation screenshots
 
 ## Prerequisites
 
@@ -101,29 +109,27 @@ open http://localhost:5173  # or open in browser
 1. **Project Reset**: `index.ts` clears `output/` and creates a fresh Vite React + TS project
 2. **Container Rebuild**: `index.ts` rebuilds the Docker image and starts the container in attached mode
 3. **Dev Server**: `agent.ts` starts `bun run dev --host 0.0.0.0` so the site is live on port 5173
-4. **Agent Session**: `agent.ts` connects to Fireworks AI (Kimi K2.5) with web development tools
-5. **Structured Transcript**: assistant text, tool calls, file edits, and dev server logs are streamed to the terminal
-6. **Verification**: the agent verifies the site works with `curl` before completing
-7. **Build Check**: the agent runs `bun run build` to ensure the production build succeeds
-8. **Completion**: the container stays alive after `completed()` so the dev server remains available
+4. **Builder Session**: a persistent builder agent edits the project to match `./images/`
+5. **Screenshot Capture**: `capture.ts` captures the current implementation into `output_images/`
+6. **Verifier Session**: a fresh verifier agent compares `./images/` against `./output_images/`
+7. **Compaction + Retry**: failed verifier feedback is fed back to the builder after compaction
+8. **Completion**: the run ends with either `passed` or `max_fail_returned_last_attempt`
 
 ## Agent Capabilities
 
-The web development agent has access to:
-
-- **File Operations**: Read, write, edit files in the project
-- **Command Execution**: Run any shell command (bun install, build, etc.)
-- **HTTP Requests**: Fetch URLs, verify endpoints with curl
-- **System Prompt**: Detailed instructions in `prompts/system.md`
+The builder agent has access to coding tools and the verifier agent has read-only tools plus `pass()` / `fail(report)`.
 
 ## Project Structure
 
 ```
 .
-├── agent.ts           # Agent session (runs inside process)
+├── agent.ts           # Builder/verifier orchestration loop
 ├── index.ts           # Host orchestrator
 ├── prompts/
-│   └── system.md      # Agent system instructions
+│   ├── builder-system.md
+│   └── verifier-system.md
+├── images/            # Reference screenshots
+├── output_images/     # Captured implementation screenshots
 ├── output/            # Generated Vite project (gitignored)
 ├── Dockerfile         # Container setup
 ├── docker-compose.yml # Container orchestration
@@ -147,10 +153,10 @@ Edit `index.ts` or `agent.ts` to use a different Fireworks model:
 
 ### Change the Prompt
 
-Edit the user prompt in `agent.ts`:
+Edit the builder/verifier prompts in `agent.ts` and `prompts/*.md`:
 
 ```typescript
-const userPrompt = "Create a portfolio website with dark theme";
+const nextBuilderPrompt = createInitialBuilderPrompt();
 ```
 
 ### Use Docker
@@ -174,7 +180,7 @@ docker-compose up --build
 - Ensure port 5173 is available
 
 **Build fails?**
-- The agent will retry automatically
+- The builder will be forced to keep working until it can submit a buildable project
 - Check TypeScript errors in `output/`
 
 **Website not loading?**

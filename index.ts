@@ -1,13 +1,14 @@
-import { access, mkdir, rm } from "fs/promises";
+import { access, mkdir, readFile, rm } from "fs/promises";
 import { join, resolve } from "path";
-import { captureScreenshots } from "./capture.ts";
 
 const workspaceDir = resolve("output");
 const promptsDir = resolve("prompts");
 const agentHomeDir = resolve("home");
+const referenceImagesDir = resolve("images");
+const outputImagesDir = resolve("output_images");
 const containerName = "pi-agent-session";
 const imageName = "pi-agent";
-const completionMarkerPath = join(workspaceDir, ".agent-completed.json");
+const resultMarkerPath = join(workspaceDir, ".agent-result.json");
 let attachedContainerProc: Bun.Subprocess | null = null;
 let isShuttingDown = false;
 
@@ -110,9 +111,10 @@ async function stopAndRemoveContainer() {
 
 async function resetWorkspace() {
   await rm(workspaceDir, { recursive: true, force: true });
-  await rm(resolve("output_images"), { recursive: true, force: true });
+  await rm(outputImagesDir, { recursive: true, force: true });
   await rm(agentHomeDir, { recursive: true, force: true });
   await mkdir(workspaceDir, { recursive: true });
+  await mkdir(outputImagesDir, { recursive: true });
   await mkdir(agentHomeDir, { recursive: true });
 }
 
@@ -170,7 +172,7 @@ try {
 
   logStep("Starting attached container session", containerName);
   logInfo("The dev server will be exposed on http://localhost:5173 once it comes up.");
-  logInfo("The transcript below includes assistant output, tool calls, file edits, and dev server logs.");
+  logInfo("The transcript below includes builder/verifier output, tool calls, file edits, and dev server logs.");
 
   attachedContainerProc = Bun.spawn({
     cmd: [
@@ -195,6 +197,10 @@ try {
       "-v",
       `${promptsDir}:/workspace/prompts:ro`,
       "-v",
+      `${referenceImagesDir}:/workspace/images:ro`,
+      "-v",
+      `${outputImagesDir}:/workspace/output_images`,
+      "-v",
       "/var/run/docker.sock:/var/run/docker.sock",
       "-p",
       "5173:5173",
@@ -217,33 +223,24 @@ try {
     containerExited = true;
   });
 
-  void (async () => {
+  let sawResultMarker = false;
+  const markerWatcher = (async () => {
     try {
-      await waitForCompletionMarker(completionMarkerPath, () => containerExited || isShuttingDown);
-
-      if (isShuttingDown) {
-        return;
-      }
-
-      logStep("Capturing screenshots", "http://127.0.0.1:5173 -> output_images/");
-      const result = await captureScreenshots("http://127.0.0.1:5173");
-      logInfo(
-        `Captured ${result.count} screenshots at ${result.viewport.width}x${result.viewport.height} into ${result.outputDir}`
-      );
+      await waitForCompletionMarker(resultMarkerPath, () => containerExited || isShuttingDown);
+      sawResultMarker = true;
     } catch (error) {
       if (isShuttingDown) {
         return;
       }
 
       const message = error instanceof Error ? error.message : String(error);
-      logError(`Screenshot capture failed: ${message}`);
-      await cleanupRunningContainer();
-      process.exit(1);
+      logError(`Result marker was not written: ${message}`);
     }
   })();
 
   const exitCode = await attachedContainerProc.exited;
   attachedContainerProc = null;
+  await markerWatcher;
 
   if (isShuttingDown) {
     process.exit(130);
@@ -254,6 +251,22 @@ try {
       `Command failed (${exitCode}): docker run --rm --name ${containerName} ... ${imageName}`
     );
   }
+
+  if (!sawResultMarker) {
+    throw new Error(`Agent session exited without writing ${resultMarkerPath}`);
+  }
+
+  const result = JSON.parse(await readFile(resultMarkerPath, "utf-8")) as {
+    status: string;
+    rounds: number;
+    verifierFailures: number;
+    finalReportPath: string | null;
+  };
+
+  logStep("Run result", result.status);
+  logInfo(`Rounds attempted: ${result.rounds}`);
+  logInfo(`Verifier failures: ${result.verifierFailures}`);
+  logInfo(`Final verifier report: ${result.finalReportPath ?? "(none)"}`);
 
   process.exit(exitCode);
 } catch (error) {
