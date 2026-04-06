@@ -17,6 +17,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Agent-specific
 output/
+output_images/
 agent.log
 nohup.out
 

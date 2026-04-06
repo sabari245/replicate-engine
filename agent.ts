@@ -9,12 +9,13 @@ import {
   type ExtensionAPI,
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@mariozechner/pi-ai";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
 const workspaceDir = process.env.WORKSPACE_DIR || "/workspace/output";
 const devServerUrl = "http://127.0.0.1:5173";
+const completionMarkerPath = join(workspaceDir, ".agent-completed.json");
 
 const colors = {
   assistant: "\x1b[36m",
@@ -194,6 +195,7 @@ async function waitForDevServer(url: string, timeoutMs = 30_000) {
 }
 
 await mkdir(workspaceDir, { recursive: true });
+await rm(completionMarkerPath, { force: true });
 
 printLine(colors.dev, "setup", `workspace: ${workspaceDir}`);
 printLine(colors.dev, "setup", "starting dev server");
@@ -232,6 +234,10 @@ const completedTool = defineTool({
     "Call this function ONLY when the web project is fully complete, verified with curl, and ready to hand over. This signals successful completion of the task.",
   parameters: Type.Object({}),
   async execute() {
+    await writeFile(
+      completionMarkerPath,
+      `${JSON.stringify({ completedAt: new Date().toISOString(), devServerUrl }, null, 2)}\n`,
+    );
     isCompleted = true;
     printLine(colors.status, "done", "completed() called");
     return {
@@ -344,7 +350,7 @@ const userPrompt = `The Vite React + TypeScript project is already set up and th
 DO NOT run 'bun run dev', 'npm run dev', or start any server process. The dev server is already running and its logs are already being streamed.
 
 Your task:
-1. Modify the existing App.tsx to create a simple hello world website
+1. Modify the existing App.tsx to create a simple blog website with a blog detailing the hello world text website
 2. Verify the site is working by running: curl -s http://localhost:5173/ | head -20
 3. Run 'bun run build' inside ${workspaceDir} to verify the production build succeeds
 4. Call completed()`;

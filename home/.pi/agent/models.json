@@ -1,0 +1,21 @@
+{
+  "providers": {
+    "fireworks": {
+      "baseUrl": "https://api.fireworks.ai/inference/v1",
+      "api": "openai-completions",
+      "apiKey": "fwGPMxQQZrkKVKAPPSW28kYXT1qfMzlTPSv4BSOrdWhUzg06",
+      "models": [
+        {
+          "id": "accounts/fireworks/models/kimi-k2p5",
+          "name": "Kimi K2.5 (Fireworks)",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 256000,
+          "maxTokens": 32768
+        }
+      ]
+    }
+  }
+}

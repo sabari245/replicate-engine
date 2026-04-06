@@ -1,10 +1,13 @@
-import { mkdir, rm } from "fs/promises";
-import { resolve } from "path";
+import { access, mkdir, rm } from "fs/promises";
+import { join, resolve } from "path";
+import { captureScreenshots } from "./capture.ts";
 
 const workspaceDir = resolve("output");
 const promptsDir = resolve("prompts");
+const agentHomeDir = resolve("home");
 const containerName = "pi-agent-session";
 const imageName = "pi-agent";
+const completionMarkerPath = join(workspaceDir, ".agent-completed.json");
 let attachedContainerProc: Bun.Subprocess | null = null;
 let isShuttingDown = false;
 
@@ -75,6 +78,19 @@ async function cleanupRunningContainer(signal?: NodeJS.Signals) {
   await stopAndRemoveContainer();
 }
 
+async function waitForCompletionMarker(path: string, shouldStop: () => boolean) {
+  while (!shouldStop()) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      await Bun.sleep(500);
+    }
+  }
+
+  throw new Error("Container stopped before the completion marker was written.");
+}
+
 function installSignalHandlers() {
   const handleSignal = async (signal: NodeJS.Signals) => {
     await cleanupRunningContainer(signal);
@@ -94,8 +110,10 @@ async function stopAndRemoveContainer() {
 
 async function resetWorkspace() {
   await rm(workspaceDir, { recursive: true, force: true });
-  await rm(resolve("home"), { recursive: true, force: true });
+  await rm(resolve("output_images"), { recursive: true, force: true });
+  await rm(agentHomeDir, { recursive: true, force: true });
   await mkdir(workspaceDir, { recursive: true });
+  await mkdir(agentHomeDir, { recursive: true });
 }
 
 async function configureGeneratedProject() {
@@ -115,6 +133,8 @@ async function configureGeneratedProject() {
 }
 
 const apiKey = process.env.FIREWORKS_API_KEY;
+const hostUid = typeof process.getuid === "function" ? process.getuid() : undefined;
+const hostGid = typeof process.getgid === "function" ? process.getgid() : undefined;
 
 if (!apiKey) {
   logError("FIREWORKS_API_KEY is not set.");
@@ -159,12 +179,19 @@ try {
       "--rm",
       "--name",
       containerName,
+      ...(hostUid !== undefined && hostGid !== undefined
+        ? ["--user", `${hostUid}:${hostGid}`]
+        : []),
       "-e",
       `FIREWORKS_API_KEY=${apiKey}`,
       "-e",
       "WORKSPACE_DIR=/workspace/output",
+      "-e",
+      "HOME=/workspace/home",
       "-v",
       `${workspaceDir}:/workspace/output`,
+      "-v",
+      `${agentHomeDir}:/workspace/home`,
       "-v",
       `${promptsDir}:/workspace/prompts:ro`,
       "-v",
@@ -184,6 +211,36 @@ try {
     stdout: "inherit",
     stderr: "inherit",
   });
+
+  let containerExited = false;
+  attachedContainerProc.exited.then(() => {
+    containerExited = true;
+  });
+
+  void (async () => {
+    try {
+      await waitForCompletionMarker(completionMarkerPath, () => containerExited || isShuttingDown);
+
+      if (isShuttingDown) {
+        return;
+      }
+
+      logStep("Capturing screenshots", "http://127.0.0.1:5173 -> output_images/");
+      const result = await captureScreenshots("http://127.0.0.1:5173");
+      logInfo(
+        `Captured ${result.count} screenshots at ${result.viewport.width}x${result.viewport.height} into ${result.outputDir}`
+      );
+    } catch (error) {
+      if (isShuttingDown) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      logError(`Screenshot capture failed: ${message}`);
+      await cleanupRunningContainer();
+      process.exit(1);
+    }
+  })();
 
   const exitCode = await attachedContainerProc.exited;
   attachedContainerProc = null;
